@@ -10,7 +10,6 @@ import MovieDashboard from "./pages/MovieDashboard";
 import Home from "./pages/Home";
 import Movies from "./pages/Movies";
 
-
 function App() {
   return (
     <>
@@ -21,11 +20,10 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/movies/:id" element={<MovieDetails />} />
-        <Route path="/footer" element={<Footer />} />
         <Route path="/users" element={<Users />} />
         <Route path="/dashboard" element={<MovieDashboard />} />
-        
       </Routes>
+      <Footer />
     </>
   );
 }

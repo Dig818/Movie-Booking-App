@@ -1,21 +1,100 @@
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useContext, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Mail, Lock, Film, ArrowRight } from "lucide-react";
+import { useForm } from "react-hook-form";
+import {
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+} from "firebase/auth";
+import { doc, setDoc } from "firebase/firestore";
+import { auth, db } from "../config/Firebase";
+import { AuthContext } from "../context/AuthContext";
 
 export default function Login() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const navigate = useNavigate();
+  const { login } = useContext(AuthContext);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Mock Login Handler
-  const handleLogin = (e) => {
-    e.preventDefault();
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm();
+
+  const googleProvider = new GoogleAuthProvider();
+
+  // Handle Email Login
+  const onSubmit = async (data) => {
     setLoading(true);
-    setTimeout(() => {
+    setError("");
+    try {
+      const res = await signInWithEmailAndPassword(
+        auth,
+        data.email,
+        data.password,
+      );
+      const user = res.user;
+      const token = await user.getIdToken();
+
+      login({
+        uid: user.uid,
+        displayName: user.displayName,
+        email: user.email,
+        photoURL: user.photoURL,
+        accessToken: token,
+      });
+
+      // Redirect to Home
+      navigate("/");
+    } catch (err) {
+      console.error(err);
+      setError("Invalid email or password.");
+    } finally {
       setLoading(false);
-      console.log("Mock login success");
-    }, 1500);
+    }
+  };
+
+  // Handle Google Login
+  const handleGoogleSignIn = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await signInWithPopup(auth, googleProvider);
+      const user = res.user;
+      const token = await user.getIdToken();
+
+      // Ensure user exists in Firestore even on Login (if they registered via Google)
+      await setDoc(
+        doc(db, "users", user.uid),
+        {
+          uid: user.uid,
+          name: user.displayName,
+          email: user.email,
+          photo: user.photoURL,
+          provider: "google",
+          lastLogin: new Date(),
+          // Note: Phone unavailable from simple Google Auth usually
+        },
+        { merge: true },
+      );
+
+      login({
+        uid: user.uid,
+        displayName: user.displayName,
+        email: user.email,
+        photoURL: user.photoURL,
+        accessToken: token,
+      });
+
+      navigate("/");
+    } catch (err) {
+      console.error(err);
+      setError("Failed to sign in with Google.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -41,7 +120,13 @@ export default function Login() {
           </div>
         )}
 
-        <form onSubmit={handleLogin} className="space-y-6">
+        {Object.keys(errors).length > 0 && (
+          <div className="bg-red-500/10 border border-red-500/20 text-red-200 px-4 py-3 rounded-lg mb-6 text-sm">
+            {errors.email?.message || errors.password?.message}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-300 ml-1">
               Email Address
@@ -50,11 +135,9 @@ export default function Login() {
               <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 group-focus-within:text-primary transition-colors" />
               <input
                 type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                {...register("email", { required: "Email is required" })}
                 className="w-full bg-slate-800/50 border border-white/10 focus:border-primary/50 text-white rounded-xl py-3 pl-12 pr-4 outline-none transition-all focus:bg-slate-800/80 focus:shadow-lg focus:shadow-primary/10"
                 placeholder="name@example.com"
-                required
               />
             </div>
           </div>
@@ -67,11 +150,9 @@ export default function Login() {
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 group-focus-within:text-primary transition-colors" />
               <input
                 type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                {...register("password", { required: "Password is required" })}
                 className="w-full bg-slate-800/50 border border-white/10 focus:border-primary/50 text-white rounded-xl py-3 pl-12 pr-4 outline-none transition-all focus:bg-slate-800/80 focus:shadow-lg focus:shadow-primary/10"
                 placeholder="••••••••"
-                required
               />
             </div>
             <div className="flex justify-end">
@@ -111,7 +192,8 @@ export default function Login() {
         </div>
 
         <button
-          // onClick={handleGoogleLogin}
+          onClick={handleGoogleSignIn}
+          disabled={loading}
           className="w-full bg-white text-slate-900 font-bold py-3.5 rounded-xl transition-all hover:bg-gray-100 active:scale-[0.98] flex items-center justify-center gap-3"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24">

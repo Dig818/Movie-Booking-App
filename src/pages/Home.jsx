@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import axios from "axios";
 import {
   Play,
   TrendingUp,
@@ -8,104 +9,90 @@ import {
   Clock,
 } from "lucide-react";
 
-// Slide Data - Replaced Landing slide with more movies
-const HERO_SLIDES = [
-  {
-    id: 1,
-    title: "Dune: Part Two",
-    description:
-      "Paul Atreides unites with Chani and the Fremen while on a warpath of revenge against the conspirators who destroyed his family.",
-    image:
-      "https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?q=80&w=2070&auto=format&fit=crop",
-    genre: "Sci-Fi / Adventure",
-    rating: "8.9",
-  },
-  {
-    id: 2,
-    title: "Oppenheimer",
-    description:
-      "The story of American scientist J. Robert Oppenheimer and his role in the development of the atomic bomb.",
-    image:
-      "https://images.unsplash.com/photo-1596727147705-54a99637456c?q=80&w=1974&auto=format&fit=crop",
-    genre: "Biography / Drama",
-    rating: "8.8",
-  },
-  {
-    id: 3,
-    title: "The Creator",
-    description:
-      "Against the backdrop of a war between humans and artificial intelligence with a superweapon which could end mankind.",
-    image:
-      "https://images.unsplash.com/photo-1616530940355-351fabd9524b?q=80&w=1935&auto=format&fit=crop",
-    genre: "Sci-Fi / Action",
-    rating: "7.8",
-  },
-  {
-    id: 4,
-    title: "Black Panther: Wakanda Forever",
-    description:
-      "The people of Wakanda fight to protect their home from intervening world powers as they mourn the death of King T'Challa.",
-    image:
-      "https://images.unsplash.com/photo-1635805737707-575885ab0820?q=80&w=1887&auto=format&fit=crop",
-    genre: "Action / Adventure",
-    rating: "6.7",
-  },
-];
-
-const POPULAR_MOVIES = [
-  {
-    id: 1,
-    title: "Oppenheimer",
-    time: "3h 00m",
-    image:
-      "https://images.unsplash.com/photo-1596727147705-54a99637456c?q=80&w=1974&auto=format&fit=crop",
-  },
-  {
-    id: 2,
-    title: "Poor Things",
-    time: "2h 21m",
-    image:
-      "https://images.unsplash.com/photo-1594909122845-11baa439b7bf?q=80&w=2070&auto=format&fit=crop",
-  },
-  {
-    id: 3,
-    title: "The Creator",
-    time: "2h 13m",
-    image:
-      "https://images.unsplash.com/photo-1616530940355-351fabd9524b?q=80&w=1935&auto=format&fit=crop",
-  },
-  {
-    id: 4,
-    title: "Spider-Man",
-    time: "2h 20m",
-    image:
-      "https://images.unsplash.com/photo-1604200213928-ba3cf4fc8ef1?q=80&w=2070&auto=format&fit=crop",
-  },
-];
-
 export default function Home() {
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [movies, setMovies] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const API_KEY = "80d491707d8cf7b38aa19c7ccab0952f";
+  const BASE_URL = "https://api.themoviedb.org/3";
+  const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/original";
+
+  useEffect(() => {
+    const fetchMovies = async () => {
+      try {
+        const response = await axios.get(
+          `${BASE_URL}/discover/movie?api_key=${API_KEY}&sort_by=popularity.desc&page=1`,
+        );
+        const fetchedMovies = response.data.results.map((movie) => ({
+          id: movie.id,
+          title: movie.title,
+          description: movie.overview,
+          image: movie.backdrop_path
+            ? `${IMAGE_BASE_URL}${movie.backdrop_path}`
+            : "https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?q=80&w=2070&auto=format&fit=crop", // Fallback
+          poster: movie.poster_path
+            ? `${IMAGE_BASE_URL}${movie.poster_path}`
+            : "https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?q=80&w=2070&auto=format&fit=crop",
+          rating: movie.vote_average.toFixed(1),
+          votes: movie.vote_count || 0,
+          genre: "Trending", // Genre mapping usually requires another API call
+          time: new Date(movie.release_date).getFullYear(), // Using Year as time/duration is not in discover
+        }));
+        setMovies(fetchedMovies);
+        setLoading(false);
+      } catch (err) {
+        console.error("Error fetching movies:", err);
+        setError("Failed to load movies. Please try again later.");
+        setLoading(false);
+      }
+    };
+
+    fetchMovies();
+  }, []);
 
   // Auto-slide effect
   useEffect(() => {
+    if (movies.length === 0) return;
     const timer = setInterval(() => {
-      setCurrentSlide((prev) => (prev + 1) % HERO_SLIDES.length);
-    }, 2000); // 2 seconds
+      setCurrentSlide((prev) => (prev + 1) % Math.min(5, movies.length)); // Carousel only top 5
+    }, 2000);
 
     return () => clearInterval(timer);
-  }, [currentSlide]); // Added currentSlide dependency to reset timer on manual change ideally, but simple interval works too
+  }, [currentSlide, movies]);
 
   const nextSlide = () => {
-    setCurrentSlide((prev) => (prev + 1) % HERO_SLIDES.length);
+    setCurrentSlide((prev) => (prev + 1) % Math.min(5, movies.length));
   };
 
   const prevSlide = () => {
     setCurrentSlide(
-      (prev) => (prev - 1 + HERO_SLIDES.length) % HERO_SLIDES.length,
+      (prev) =>
+        (prev - 1 + Math.min(5, movies.length)) % Math.min(5, movies.length),
     );
   };
 
-  const slide = HERO_SLIDES[currentSlide];
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">
+        <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center text-red-400">
+        {error}
+      </div>
+    );
+  }
+
+  // Slice movies for Carousel (Top 5) and Popular Grid (Rest)
+  const heroSlides = movies.slice(0, 5);
+  const popularMovies = movies.slice(5, 17); // Display next 12 movies
+  const slide = heroSlides[currentSlide];
 
   return (
     <div className="min-h-screen bg-slate-900 pb-20">
@@ -140,7 +127,7 @@ export default function Home() {
               <span>{slide.genre}</span>
               <span>•</span>
               <span className="text-yellow-400 font-bold">
-                ★ {slide.rating}
+                ★ {slide.rating} ({slide.votes} reviews)
               </span>
             </div>
             <p className="text-gray-300 text-lg mb-8 line-clamp-3 md:line-clamp-none opacity-90 max-w-xl">
@@ -148,7 +135,7 @@ export default function Home() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-start">
               <button className="px-8 py-4 rounded-xl bg-primary hover:bg-primary-hover text-white font-bold text-lg shadow-lg shadow-primary/30 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2">
-                <Play className="w-5 h-5 fill-current" />
+                <Clock className="w-5 h-5" />
                 Book Ticket
               </button>
               <button className="px-8 py-4 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md text-white font-bold text-lg transition-all hover:scale-105 active:scale-95 text-center">
@@ -187,35 +174,42 @@ export default function Home() {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {POPULAR_MOVIES.map((movie, index) => (
+          {popularMovies.map((movie, index) => (
             <div
               key={movie.id}
               className="animate-slide-up"
               style={{ animationDelay: `${index * 100}ms` }}
             >
-              <div className="group relative w-full rounded-xl overflow-hidden cursor-pointer bg-slate-800 border border-white/5 transition-all duration-300 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-2">
+              <div className="group relative w-full h-full bg-slate-800 border border-white/5 rounded-2xl overflow-hidden hover:shadow-2xl hover:shadow-primary/10 transition-all duration-300 hover:-translate-y-1 flex flex-col">
+                {/* Poster Image */}
                 <div className="aspect-[2/3] w-full relative overflow-hidden">
                   <img
-                    src={movie.image}
+                    src={movie.poster}
                     alt={movie.title}
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                   />
-                  {/* Overlay on hover */}
-                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-                    <button className="bg-primary hover:bg-primary-hover text-white p-3 rounded-full transform scale-0 group-hover:scale-100 transition-transform duration-300 delay-75 shadow-lg">
-                      <Play className="w-6 h-6 fill-current pl-1" />
-                    </button>
+                  <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-md px-2 py-1 rounded-lg text-xs font-bold text-white flex items-center gap-1 border border-white/10">
+                    <span className="text-yellow-400">★</span> {movie.rating}
                   </div>
                 </div>
 
-                <div className="p-4">
-                  <h3 className="text-white font-bold text-lg truncate group-hover:text-primary transition-colors">
+                {/* Content */}
+                <div className="p-4 flex flex-col flex-1">
+                  <h3
+                    className="text-white font-bold text-lg truncate mb-1"
+                    title={movie.title}
+                  >
                     {movie.title}
                   </h3>
-                  <div className="flex items-center gap-2 mt-2 text-gray-400 text-sm">
-                    <Clock className="w-4 h-4 text-accent" />
+
+                  <div className="flex items-center justify-between text-xs text-gray-400 mb-4">
                     <span>{movie.time}</span>
+                    <span>{movie.votes} votes</span>
                   </div>
+
+                  <button className="mt-auto w-full py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-white font-semibold text-sm transition-all shadow-lg shadow-primary/20 active:scale-95 flex items-center justify-center gap-2">
+                    Book Now
+                  </button>
                 </div>
               </div>
             </div>

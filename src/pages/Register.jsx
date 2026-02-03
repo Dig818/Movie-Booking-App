@@ -1,29 +1,121 @@
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
-import { Mail, Lock, User, ArrowRight, Film } from "lucide-react";
+import React, { useContext, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Mail, Lock, User, ArrowRight, Film, Phone } from "lucide-react";
+import { useForm } from "react-hook-form";
+import {
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+  updateProfile,
+} from "firebase/auth";
+import { doc, setDoc } from "firebase/firestore";
+import { auth, db } from "../config/Firebase";
+import { AuthContext } from "../context/AuthContext";
 
 export default function Register() {
-  const [formData, setFormData] = useState({
-    name: "",
-    email: "",
-    password: "",
-    confirmPassword: "",
-  });
+  const navigate = useNavigate();
+  const { login } = useContext(AuthContext);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm();
+
+  const googleProvider = new GoogleAuthProvider();
+
+  // Handle Email Registration
+  const onSubmit = async (data) => {
+    if (data.password !== data.confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const res = await createUserWithEmailAndPassword(
+        auth,
+        data.email,
+        data.password,
+      );
+      const user = res.user;
+
+      // Update Auth Profile
+      await updateProfile(user, {
+        displayName: data.name,
+      });
+
+      const token = await user.getIdToken();
+
+      // Save to Firestore
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
+        name: data.name,
+        email: data.email,
+        phone: data.phone || "",
+        provider: "password",
+        createdAt: new Date(),
+      });
+
+      // NOTE: User requested redirect to Login page after email registration
+      // We don't auto-login here for email based on request "redirect to login page"
+      navigate("/login");
+    } catch (err) {
+      console.error(err);
+      if (err.code === "auth/email-already-in-use") {
+        setError("Email is already registered. Please login.");
+      } else {
+        setError("Failed to create an account. Please try again.");
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Mock Register Handler
-  const handleRegister = (e) => {
-    e.preventDefault();
+  // Handle Google Registration/Login
+  const handleGoogleSignIn = async () => {
     setLoading(true);
-    setTimeout(() => {
+    setError("");
+    try {
+      const res = await signInWithPopup(auth, googleProvider);
+      const user = res.user;
+      const token = await user.getIdToken();
+
+      // Save/Merge to Firestore
+      await setDoc(
+        doc(db, "users", user.uid),
+        {
+          uid: user.uid,
+          name: user.displayName,
+          email: user.email,
+          phone: user.phoneNumber || "",
+          photo: user.photoURL,
+          provider: "google",
+          lastLogin: new Date(),
+        },
+        { merge: true },
+      );
+
+      login({
+        uid: user.uid,
+        displayName: user.displayName,
+        email: user.email,
+        photoURL: user.photoURL,
+        accessToken: token,
+      });
+
+      // Redirect to Home for Google Auth
+      navigate("/");
+    } catch (err) {
+      console.error(err);
+      setError("Failed to sign in with Google.");
+    } finally {
       setLoading(false);
-      console.log("Mock register success", formData);
-    }, 1500);
+    }
   };
 
   return (
@@ -52,7 +144,18 @@ export default function Register() {
           </div>
         )}
 
-        <form onSubmit={handleRegister} className="space-y-5">
+        {/* Validation Errors Display */}
+        {Object.keys(errors).length > 0 && (
+          <div className="bg-red-500/10 border border-red-500/20 text-red-200 px-4 py-3 rounded-lg mb-6 text-sm">
+            {errors.name?.message ||
+              errors.email?.message ||
+              errors.password?.message ||
+              errors.confirmPassword?.message ||
+              errors.phone?.message}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-300 ml-1">
               Full Name
@@ -61,12 +164,9 @@ export default function Register() {
               <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 group-focus-within:text-primary transition-colors" />
               <input
                 type="text"
-                name="name"
-                value={formData.name}
-                onChange={handleChange}
+                {...register("name", { required: "Full Name is required" })}
                 className="w-full bg-slate-800/50 border border-white/10 focus:border-primary/50 text-white rounded-xl py-3 pl-12 pr-4 outline-none transition-all focus:bg-slate-800/80 focus:shadow-lg focus:shadow-primary/10"
                 placeholder="John Doe"
-                required
               />
             </div>
           </div>
@@ -79,12 +179,37 @@ export default function Register() {
               <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 group-focus-within:text-primary transition-colors" />
               <input
                 type="email"
-                name="email"
-                value={formData.email}
-                onChange={handleChange}
+                {...register("email", {
+                  required: "Email is required",
+                  pattern: {
+                    value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+                    message: "Invalid email address",
+                  },
+                })}
                 className="w-full bg-slate-800/50 border border-white/10 focus:border-primary/50 text-white rounded-xl py-3 pl-12 pr-4 outline-none transition-all focus:bg-slate-800/80 focus:shadow-lg focus:shadow-primary/10"
                 placeholder="name@example.com"
-                required
+              />
+            </div>
+          </div>
+
+          {/* New Phone Number Field */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-300 ml-1">
+              Phone Number
+            </label>
+            <div className="relative group">
+              <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 group-focus-within:text-primary transition-colors" />
+              <input
+                type="tel"
+                {...register("phone", {
+                  required: "Phone Number is required",
+                  minLength: {
+                    value: 10,
+                    message: "Phone number must be at least 10 digits",
+                  },
+                })}
+                className="w-full bg-slate-800/50 border border-white/10 focus:border-primary/50 text-white rounded-xl py-3 pl-12 pr-4 outline-none transition-all focus:bg-slate-800/80 focus:shadow-lg focus:shadow-primary/10"
+                placeholder="+1 234 567 8900"
               />
             </div>
           </div>
@@ -97,12 +222,15 @@ export default function Register() {
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 group-focus-within:text-primary transition-colors" />
               <input
                 type="password"
-                name="password"
-                value={formData.password}
-                onChange={handleChange}
+                {...register("password", {
+                  required: "Password is required",
+                  minLength: {
+                    value: 6,
+                    message: "Password must be at least 6 characters",
+                  },
+                })}
                 className="w-full bg-slate-800/50 border border-white/10 focus:border-primary/50 text-white rounded-xl py-3 pl-12 pr-4 outline-none transition-all focus:bg-slate-800/80 focus:shadow-lg focus:shadow-primary/10"
                 placeholder="••••••••"
-                required
               />
             </div>
           </div>
@@ -115,12 +243,11 @@ export default function Register() {
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 group-focus-within:text-primary transition-colors" />
               <input
                 type="password"
-                name="confirmPassword"
-                value={formData.confirmPassword}
-                onChange={handleChange}
+                {...register("confirmPassword", {
+                  required: "Please confirm your password",
+                })}
                 className="w-full bg-slate-800/50 border border-white/10 focus:border-primary/50 text-white rounded-xl py-3 pl-12 pr-4 outline-none transition-all focus:bg-slate-800/80 focus:shadow-lg focus:shadow-primary/10"
                 placeholder="••••••••"
-                required
               />
             </div>
           </div>
@@ -141,6 +268,43 @@ export default function Register() {
             </button>
           </div>
         </form>
+
+        <div className="relative my-8">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-white/10"></div>
+          </div>
+          <div className="relative flex justify-center text-xs">
+            <span className="bg-slate-900/60 px-4 text-gray-500 backdrop-blur-xl">
+              Or continue with
+            </span>
+          </div>
+        </div>
+
+        <button
+          onClick={handleGoogleSignIn}
+          disabled={loading}
+          className="w-full bg-white text-slate-900 font-bold py-3.5 rounded-xl transition-all hover:bg-gray-100 active:scale-[0.98] flex items-center justify-center gap-3"
+        >
+          <svg className="w-5 h-5" viewBox="0 0 24 24">
+            <path
+              d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+              fill="#4285F4"
+            />
+            <path
+              d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+              fill="#34A853"
+            />
+            <path
+              d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.26.81-.58z"
+              fill="#FBBC05"
+            />
+            <path
+              d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+              fill="#EA4335"
+            />
+          </svg>
+          Google
+        </button>
 
         <p className="mt-8 text-center text-sm text-gray-400">
           Already have an account?{" "}
