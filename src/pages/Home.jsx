@@ -7,6 +7,7 @@ import {
   ChevronRight,
   ChevronLeft,
   Clock,
+  ChevronDown,
 } from "lucide-react";
 
 export default function Home() {
@@ -15,41 +16,65 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Pagination States
+  const [apiPage, setApiPage] = useState(1);
+  const [movieBuffer, setMovieBuffer] = useState([]); // Store extra movies (10) from the 20-item TSDB page
+
   const API_KEY = "80d491707d8cf7b38aa19c7ccab0952f";
   const BASE_URL = "https://api.themoviedb.org/3";
   const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/original";
 
-  useEffect(() => {
-    const fetchMovies = async () => {
-      try {
-        const response = await axios.get(
-          `${BASE_URL}/discover/movie?api_key=${API_KEY}&sort_by=popularity.desc&page=1`,
-        );
-        const fetchedMovies = response.data.results.map((movie) => ({
-          id: movie.id,
-          title: movie.title,
-          description: movie.overview,
-          image: movie.backdrop_path
-            ? `${IMAGE_BASE_URL}${movie.backdrop_path}`
-            : "https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?q=80&w=2070&auto=format&fit=crop", // Fallback
-          poster: movie.poster_path
-            ? `${IMAGE_BASE_URL}${movie.poster_path}`
-            : "https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?q=80&w=2070&auto=format&fit=crop",
-          rating: movie.vote_average.toFixed(1),
-          votes: movie.vote_count || 0,
-          genre: "Trending", // Genre mapping usually requires another API call
-          time: new Date(movie.release_date).getFullYear(), // Using Year as time/duration is not in discover
-        }));
-        setMovies(fetchedMovies);
-        setLoading(false);
-      } catch (err) {
-        console.error("Error fetching movies:", err);
-        setError("Failed to load movies. Please try again later.");
-        setLoading(false);
-      }
-    };
+  const loadMovies = async () => {
+    setLoading(true);
 
-    fetchMovies();
+    // Scenario 1: We have buffered movies from the previous fetch
+    if (movieBuffer.length > 0) {
+      setMovies((prev) => [...prev, ...movieBuffer]);
+      setMovieBuffer([]); // Clear buffer
+      setLoading(false);
+      return;
+    }
+
+    // Scenario 2: Need to fetch new page from API
+    try {
+      const response = await axios.get(
+        `${BASE_URL}/discover/movie?api_key=${API_KEY}&sort_by=popularity.desc&page=${apiPage}`,
+      );
+
+      const newMovies = response.data.results.map((movie) => ({
+        id: movie.id,
+        title: movie.title,
+        description: movie.overview,
+        image: movie.backdrop_path
+          ? `${IMAGE_BASE_URL}${movie.backdrop_path}`
+          : "https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?q=80&w=2070&auto=format&fit=crop", // Fallback
+        poster: movie.poster_path
+          ? `${IMAGE_BASE_URL}${movie.poster_path}`
+          : "https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?q=80&w=2070&auto=format&fit=crop",
+        rating: movie.vote_average.toFixed(1),
+        votes: movie.vote_count || 0,
+        genre: "Trending", // Genre mapping usually requires another API call
+        time: new Date(movie.release_date).getFullYear(), // Using Year as time/duration is not in discover
+      }));
+
+      // Split 20 items into 10 (display) + 10 (buffer)
+      const firstBatch = newMovies.slice(0, 10);
+      const secondBatch = newMovies.slice(10, 20);
+
+      setMovies((prev) => [...prev, ...firstBatch]);
+      setMovieBuffer(secondBatch);
+      setApiPage((prev) => prev + 1); // Next fetch will use next page
+      setLoading(false);
+    } catch (err) {
+      console.error("Error fetching movies:", err);
+      setError("Failed to load movies. Please try again later.");
+      setLoading(false);
+    }
+  };
+
+  // Initial Load
+  useEffect(() => {
+    loadMovies();
   }, []);
 
   // Auto-slide effect
@@ -73,7 +98,7 @@ export default function Home() {
     );
   };
 
-  if (loading) {
+  if (loading && movies.length === 0) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">
         <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
@@ -91,75 +116,77 @@ export default function Home() {
 
   // Slice movies for Carousel (Top 5) and Popular Grid (Rest)
   const heroSlides = movies.slice(0, 5);
-  const popularMovies = movies.slice(5, 17); // Display next 12 movies
-  const slide = heroSlides[currentSlide];
+  const popularMovies = movies.slice(5); // Display all remaining movies
+  const slide = heroSlides[currentSlide] || heroSlides[0];
 
   return (
     <div className="min-h-screen bg-slate-900 pb-20">
       {/* Hero Carousel Section */}
-      <div className="relative h-[85vh] w-full overflow-hidden group">
-        {/* Background Image with KeyID to force re-render/anim */}
-        <div key={slide.id} className="absolute inset-0 animate-fade-in">
-          <img
-            src={slide.image}
-            alt="Hero Background"
-            className="w-full h-full object-cover"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/50 to-transparent"></div>
-          {/* Left-heavy gradient for left alignment text readability */}
-          <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-900/70 to-transparent"></div>
-        </div>
+      {slide && (
+        <div className="relative h-[85vh] w-full overflow-hidden group">
+          {/* Background Image with KeyID to force re-render/anim */}
+          <div key={slide.id} className="absolute inset-0 animate-fade-in">
+            <img
+              src={slide.image}
+              alt="Hero Background"
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/50 to-transparent"></div>
+            {/* Left-heavy gradient for left alignment text readability */}
+            <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-900/70 to-transparent"></div>
+          </div>
 
-        {/* Content Render Logic - Left Aligned */}
-        <div className="relative h-full container mx-auto px-4 md:px-6 flex items-center justify-start">
-          <div className="max-w-2xl animate-slide-up pt-20 text-left">
-            <span className="inline-block px-3 py-1 rounded-full bg-accent/20 text-accent border border-accent/20 text-xs font-bold mb-4">
-              #Now Showing
-            </span>
-            <h1 className="text-4xl md:text-6xl font-bold text-white mb-4 leading-tight drop-shadow-2xl">
-              {slide.title}
-            </h1>
-            <div className="flex items-center gap-4 text-gray-300 mb-6 text-sm md:text-base justify-start">
-              <span className="flex items-center gap-1">
-                <TrendingUp className="w-4 h-4 text-primary" /> Trending
+          {/* Content Render Logic - Left Aligned */}
+          <div className="relative h-full container mx-auto px-4 md:px-6 flex items-center justify-start">
+            <div className="max-w-2xl animate-slide-up pt-20 text-left">
+              <span className="inline-block px-3 py-1 rounded-full bg-accent/20 text-accent border border-accent/20 text-xs font-bold mb-4">
+                #Now Showing
               </span>
-              <span>•</span>
-              <span>{slide.genre}</span>
-              <span>•</span>
-              <span className="text-yellow-400 font-bold">
-                ★ {slide.rating} ({slide.votes} reviews)
-              </span>
-            </div>
-            <p className="text-gray-300 text-lg mb-8 line-clamp-3 md:line-clamp-none opacity-90 max-w-xl">
-              {slide.description}
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-start">
-              <button className="px-8 py-4 rounded-xl bg-primary hover:bg-primary-hover text-white font-bold text-lg shadow-lg shadow-primary/30 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2">
-                <Clock className="w-5 h-5" />
-                Book Ticket
-              </button>
-              <button className="px-8 py-4 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md text-white font-bold text-lg transition-all hover:scale-105 active:scale-95 text-center">
-                View Details
-              </button>
+              <h1 className="text-4xl md:text-6xl font-bold text-white mb-4 leading-tight drop-shadow-2xl">
+                {slide.title}
+              </h1>
+              <div className="flex items-center gap-4 text-gray-300 mb-6 text-sm md:text-base justify-start">
+                <span className="flex items-center gap-1">
+                  <TrendingUp className="w-4 h-4 text-primary" /> Trending
+                </span>
+                <span>•</span>
+                <span>{slide.genre}</span>
+                <span>•</span>
+                <span className="text-yellow-400 font-bold">
+                  ★ {slide.rating} ({slide.votes} reviews)
+                </span>
+              </div>
+              <p className="text-gray-300 text-lg mb-8 line-clamp-3 md:line-clamp-none opacity-90 max-w-xl">
+                {slide.description}
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4 justify-start">
+                <button className="px-8 py-4 rounded-xl bg-primary hover:bg-primary-hover text-white font-bold text-lg shadow-lg shadow-primary/30 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2">
+                  <Clock className="w-5 h-5" />
+                  Book Ticket
+                </button>
+                <button className="px-8 py-4 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md text-white font-bold text-lg transition-all hover:scale-105 active:scale-95 text-center">
+                  View Details
+                </button>
+              </div>
             </div>
           </div>
+
+          {/* Arrow Navigation */}
+          <button
+            onClick={prevSlide}
+            className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/30 hover:bg-black/60 text-white backdrop-blur-sm border border-white/10 transition-all opacity-0 group-hover:opacity-100"
+          >
+            <ChevronLeft className="w-8 h-8" />
+          </button>
+
+          <button
+            onClick={nextSlide}
+            className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/30 hover:bg-black/60 text-white backdrop-blur-sm border border-white/10 transition-all opacity-0 group-hover:opacity-100"
+          >
+            <ChevronRight className="w-8 h-8" />
+          </button>
         </div>
-
-        {/* Arrow Navigation */}
-        <button
-          onClick={prevSlide}
-          className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/30 hover:bg-black/60 text-white backdrop-blur-sm border border-white/10 transition-all opacity-0 group-hover:opacity-100"
-        >
-          <ChevronLeft className="w-8 h-8" />
-        </button>
-
-        <button
-          onClick={nextSlide}
-          className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/30 hover:bg-black/60 text-white backdrop-blur-sm border border-white/10 transition-all opacity-0 group-hover:opacity-100"
-        >
-          <ChevronRight className="w-8 h-8" />
-        </button>
-      </div>
+      )}
 
       {/* Popular Movies Section */}
       <section className="container mx-auto px-4 md:px-6 mt-12 relative z-10">
@@ -176,9 +203,9 @@ export default function Home() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {popularMovies.map((movie, index) => (
             <div
-              key={movie.id}
+              key={`${movie.id}-${index}`}
               className="animate-slide-up"
-              style={{ animationDelay: `${index * 100}ms` }}
+              style={{ animationDelay: `${(index % 10) * 100}ms` }}
             >
               <div className="group relative w-full h-full bg-slate-800 border border-white/5 rounded-2xl overflow-hidden hover:shadow-2xl hover:shadow-primary/10 transition-all duration-300 hover:-translate-y-1 flex flex-col">
                 {/* Poster Image */}
@@ -214,6 +241,27 @@ export default function Home() {
               </div>
             </div>
           ))}
+        </div>
+
+        {/* Load More Button */}
+        <div className="mt-12 flex justify-center">
+          <button
+            onClick={loadMovies}
+            disabled={loading}
+            className="px-8 py-3 rounded-xl bg-slate-800 border border-white/10 text-white font-medium hover:bg-slate-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {loading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                Loading...
+              </>
+            ) : (
+              <>
+                Load More Movies
+                <ChevronDown className="w-4 h-4" />
+              </>
+            )}
+          </button>
         </div>
       </section>
 
