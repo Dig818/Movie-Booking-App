@@ -126,6 +126,10 @@ export default function Navbar() {
                         currentUser.photoURL ||
                         `https://ui-avatars.com/api/?name=${currentUser.displayName || "User"}&background=random`
                       }
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = `https://ui-avatars.com/api/?name=${currentUser.displayName || "User"}&background=random`;
+                      }}
                       alt="Profile"
                       className="w-full h-full rounded-full object-cover"
                     />
@@ -240,6 +244,10 @@ export default function Navbar() {
                     currentUser.photoURL ||
                     `https://ui-avatars.com/api/?name=${currentUser.displayName || "User"}&background=random`
                   }
+                  onError={(e) => {
+                    e.target.onerror = null;
+                    e.target.src = `https://ui-avatars.com/api/?name=${currentUser.displayName || "User"}&background=random`;
+                  }}
                   alt="Profile"
                   className="w-10 h-10 rounded-full object-cover"
                 />

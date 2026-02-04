@@ -1,4 +1,4 @@
-import React from "react";
+import {useEffect} from "react";
 import { Route, Routes } from "react-router-dom";
 import Navbar from "./pages/Navbar";
 import Login from "./pages/Login";
@@ -9,8 +9,14 @@ import Users from "./pages/Users";
 import MovieDashboard from "./pages/MovieDashboard";
 import Home from "./pages/Home";
 import Movies from "./pages/Movies";
+import { seedFirestore } from "./seed/seedData";
 
 function App() {
+
+useEffect(() => {
+  seedFirestore();
+}, []);
+
   return (
     <>
       <Navbar />

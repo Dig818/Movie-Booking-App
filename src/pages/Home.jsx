@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import axios from "axios";
+import { collection, getDocs } from "firebase/firestore";
+import { db } from "../config/Firebase";
 import {
   Play,
   TrendingUp,
@@ -9,6 +10,7 @@ import {
   Clock,
   ChevronDown,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 
 export default function Home() {
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -17,17 +19,12 @@ export default function Home() {
   const [error, setError] = useState(null);
 
   // Pagination States
-  const [apiPage, setApiPage] = useState(1);
-  const [movieBuffer, setMovieBuffer] = useState([]); // Store extra movies (10) from the 20-item TSDB page
+  const [movieBuffer, setMovieBuffer] = useState([]); // Store extra movies (10)
 
-  const API_KEY = "80d491707d8cf7b38aa19c7ccab0952f";
-  const BASE_URL = "https://api.themoviedb.org/3";
   const IMAGE_BASE_URL = "https://image.tmdb.org/t/p/original";
 
   const loadMovies = async () => {
-    setLoading(true);
-
-    // Scenario 1: We have buffered movies from the previous fetch
+    // If we have buffered movies, load them
     if (movieBuffer.length > 0) {
       setMovies((prev) => [...prev, ...movieBuffer]);
       setMovieBuffer([]); // Clear buffer
@@ -35,38 +32,58 @@ export default function Home() {
       return;
     }
 
-    // Scenario 2: Need to fetch new page from API
-    try {
-      const response = await axios.get(
-        `${BASE_URL}/discover/movie?api_key=${API_KEY}&sort_by=popularity.desc&page=${apiPage}`,
-      );
+    setLoading(true);
 
-      const newMovies = response.data.results.map((movie) => ({
+    try {
+      // Fetch from Firestore instead of API
+      const querySnapshot = await getDocs(collection(db, "movies"));
+      const firebaseMovies = querySnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+
+      // Map to view model
+      const formattedMovies = firebaseMovies.map((movie) => ({
         id: movie.id,
         title: movie.title,
         description: movie.overview,
         image: movie.backdrop_path
           ? `${IMAGE_BASE_URL}${movie.backdrop_path}`
-          : "https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?q=80&w=2070&auto=format&fit=crop", // Fallback
+          : movie.poster_path
+            ? `${IMAGE_BASE_URL}${movie.poster_path}`
+            : "https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?q=80&w=2070&auto=format&fit=crop",
         poster: movie.poster_path
           ? `${IMAGE_BASE_URL}${movie.poster_path}`
           : "https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?q=80&w=2070&auto=format&fit=crop",
-        rating: movie.vote_average.toFixed(1),
+        rating:
+          typeof movie.vote_average === "number"
+            ? movie.vote_average.toFixed(1)
+            : movie.vote_average,
         votes: movie.vote_count || 0,
-        genre: "Trending", // Genre mapping usually requires another API call
-        time: new Date(movie.release_date).getFullYear(), // Using Year as time/duration is not in discover
+        genre: "Trending",
+        time: new Date(movie.release_date).getFullYear(),
       }));
 
-      // Split 20 items into 10 (display) + 10 (buffer)
-      const firstBatch = newMovies.slice(0, 10);
-      const secondBatch = newMovies.slice(10, 20);
+      // Split items: 10 (display) + remaining (buffer)
+      // Since we fetch all at once (20 items), we can just slice.
+      // If user already has movies loaded (rare in this logic unless we add refresh), we normally just add.
+      // But since this replaces the API loop, we only run this main fetch once if movies is empty?
+      // Actually, the original logic called loadMovies() on mount.
 
-      setMovies((prev) => [...prev, ...firstBatch]);
-      setMovieBuffer(secondBatch);
-      setApiPage((prev) => prev + 1); // Next fetch will use next page
+      if (movies.length === 0) {
+        const firstBatch = formattedMovies.slice(0, 10);
+        const secondBatch = formattedMovies.slice(10);
+        setMovies(firstBatch);
+        setMovieBuffer(secondBatch);
+      } else {
+        // If called again and no buffer (already loaded all), strictly nothing to do or reload?
+        // For now, if buffer empty and we fetched, it means we have everything.
+        // We might want to disable the button if buffer is empty.
+      }
+
       setLoading(false);
     } catch (err) {
-      console.error("Error fetching movies:", err);
+      console.error("Error fetching movies from Firestore:", err);
       setError("Failed to load movies. Please try again later.");
       setLoading(false);
     }
@@ -164,9 +181,11 @@ export default function Home() {
                   <Clock className="w-5 h-5" />
                   Book Ticket
                 </button>
-                <button className="px-8 py-4 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md text-white font-bold text-lg transition-all hover:scale-105 active:scale-95 text-center">
-                  View Details
-                </button>
+                <Link to={`/movies/${slide.id}`}>
+                  <button className="px-8 py-4 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-md text-white font-bold text-lg transition-all hover:scale-105 active:scale-95 text-center">
+                    View Details
+                  </button>
+                </Link>
               </div>
             </div>
           </div>
@@ -234,35 +253,44 @@ export default function Home() {
                     <span>{movie.votes} votes</span>
                   </div>
 
-                  <button className="mt-auto w-full py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-white font-semibold text-sm transition-all shadow-lg shadow-primary/20 active:scale-95 flex items-center justify-center gap-2">
-                    Book Now
-                  </button>
+                  <div className="mt-auto grid grid-cols-2 gap-2">
+                    <button className="py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-white font-semibold text-sm transition-all shadow-lg shadow-primary/20 active:scale-95 flex items-center justify-center">
+                      Book
+                    </button>
+                    <Link to={`/movies/${movie.id}`}>
+                      <button className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold text-sm transition-all active:scale-95">
+                        Details
+                      </button>
+                    </Link>
+                  </div>
                 </div>
               </div>
             </div>
           ))}
         </div>
 
-        {/* Load More Button */}
-        <div className="mt-12 flex justify-center">
-          <button
-            onClick={loadMovies}
-            disabled={loading}
-            className="px-8 py-3 rounded-xl bg-slate-800 border border-white/10 text-white font-medium hover:bg-slate-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            {loading ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                Loading...
-              </>
-            ) : (
-              <>
-                Load More Movies
-                <ChevronDown className="w-4 h-4" />
-              </>
-            )}
-          </button>
-        </div>
+        {/* Load More Button - Only show if there's more to load */}
+        {movieBuffer.length > 0 && (
+          <div className="mt-12 flex justify-center">
+            <button
+              onClick={loadMovies}
+              disabled={loading}
+              className="px-8 py-3 rounded-xl bg-slate-800 border border-white/10 text-white font-medium hover:bg-slate-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Loading...
+                </>
+              ) : (
+                <>
+                  Load More Movies
+                  <ChevronDown className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </div>
+        )}
       </section>
 
       {/* Coming Soon Section */}
